@@ -1,0 +1,96 @@
+package jenkins
+
+import (
+	"net/url"
+	"net/http"
+	"fmt"
+	"bytes"
+	"io/ioutil"
+)
+
+type Auth struct {
+	Username string
+	ApiToken string
+}
+
+type Jenkins struct {
+	auth    *Auth
+	baseUrl string
+}
+
+type Project struct {
+	XMLName     struct{} `xml:"project"`
+	Description string `xml:"description"`
+}
+
+
+func NewJenkins(auth *Auth, baseUrl string) *Jenkins {
+	return &Jenkins{
+		auth:    auth,
+		baseUrl: baseUrl,
+	}
+}
+
+func (jenkins *Jenkins) sendRequest(req *http.Request) (*http.Response, error) {
+	req.SetBasicAuth(jenkins.auth.Username, jenkins.auth.ApiToken)
+	client := &http.Client{}
+
+	return client.Do(req)
+}
+
+func (jenkins *Jenkins) parseXmlResponse(resp *http.Response, body interface{}) (err error) {
+	defer resp.Body.Close()
+
+	if body == nil {
+		return
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	return xml.Unmarshal(data, body)
+}
+
+func (jenkins *Jenkins) postXml(path string, params url.Values, xmlBody io.Reader, body interface{}) (err error) {
+	requestUrl := url.Parse(jenkins.baseUrl)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	u.Path = path
+	
+	if params != nil {
+		queryString := params.Encode()
+		if queryString != "" {
+			requestUrl.RawQuery = queryString
+		}
+	}
+
+	req, err := http.NewRequest("POST", requestUrl.String(), xmlBody)
+	if err != nil {
+		return
+	}
+
+	req.Header.Add("Content-Type", "application/xml")
+	resp, err := jenkins.sendRequest(req)
+	if err != nil {
+		return
+	}
+	if resp.StatusCode != 200 {
+		return errors.New(fmt.Sprintf("error: HTTP POST returned status code returned: %d", resp.StatusCode))
+	}
+
+	return jenkins.parseXmlResponse(resp, body)
+}
+
+
+func (jenkins *Jenkins) CreateJob(project Project, jobName string) error {
+	projectXml, _ := xml.Marshal(project)
+	reader := bytes.NewReader(mavenJobItemXml)
+	params := url.Values{"name": []string{jobName}}
+
+	return jenkins.postXml("/createItem", params, reader, nil)
+}
